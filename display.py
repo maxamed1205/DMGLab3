@@ -34,6 +34,35 @@ class DisplayTrainNetwork:
     def close(self):
         self.driver.close()
 
+    def fetch_cities_and_routes(self):
+        cities = []
+        routes = []
+
+        with self.driver.session() as session:
+            # Récupérer les villes
+            result_cities = session.run("MATCH (c:City) RETURN c.name AS name, c.latitude AS latitude, c.longitude AS longitude")
+            for record in result_cities:
+                cities.append({
+                    "name": record["name"],
+                    "latitude": record["latitude"],
+                    "longitude": record["longitude"]
+                })
+
+            # Récupérer les relations entre villes (routes)
+            result_routes = session.run("""
+                MATCH (c1:City)-[r:LINE]->(c2:City)
+                RETURN c1.name AS city1, c2.name AS city2, r.km AS distance
+            """)
+            for record in result_routes:
+                routes.append({
+                    "city1": record["city1"],
+                    "city2": record["city2"],
+                    "distance": record["distance"]
+                })
+
+        return cities, routes
+
+
     def display_cities(self):
         map_1 = folium.Map(location=center_switzerland, zoom_start=8)
         with self.driver.session() as session:
@@ -56,6 +85,27 @@ class DisplayTrainNetwork:
                 latitude=record['c']['latitude'],
                 longitude=record['c']['longitude']
             )
+    def display_routes(self, routes, cities):
+        # Initialiser la carte centrée sur la Suisse
+        map_object = folium.Map(location=[46.800663464, 8.222665776], zoom_start=8)
+
+        for route in routes:
+            # Trouver les coordonnées des villes
+            city1 = next((city for city in cities if city["name"] == route["city1"]), None)
+            city2 = next((city for city in cities if city["name"] == route["city2"]), None)
+
+            if city1 and city2:  # Vérifier que les deux villes existent
+                # Ajouter une ligne entre les deux villes
+                folium.PolyLine(
+                    locations=[(city1["latitude"], city1["longitude"]), (city2["latitude"], city2["longitude"])],
+                    color="blue",
+                    weight=2.5,
+                    opacity=0.8
+                ).add_to(map_object)
+
+        # Enregistrer la carte dans un fichier HTML pour visualisation
+        map_object.save("out/routes_map.html")
+        print("Carte avec routes enregistrée sous 'out/routes_map.html'")
 
 
 if __name__ == "__main__":
@@ -63,5 +113,12 @@ if __name__ == "__main__":
 
     center_switzerland = [46.800663464, 8.222665776]
 
+    # Récupère les villes et routes depuis Neo4j
+    cities, routes = display_train_network.fetch_cities_and_routes()
+    print("Cities:", len(cities))
+    print("Routes:", len(routes))
+
     # display cities on the map
     display_train_network.display_cities()
+
+    display_train_network.display_routes(routes, cities)
